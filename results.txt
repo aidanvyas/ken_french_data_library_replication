@@ -1,0 +1,7 @@
+Mkt-Rf | Pearson coreelation=0.99993 | Spearman correlation=0.99989 | MAE=0.02983
+SMB | Pearson coreelation=0.99717 | Spearman correlation=0.99628 | MAE=0.17395
+HML | Pearson coreelation=0.99324 | Spearman correlation=0.98756 | MAE=0.23790
+RMW | Pearson coreelation=0.99279 | Spearman correlation=0.98642 | MAE=0.21689
+CMA | Pearson coreelation=0.99119 | Spearman correlation=0.98975 | MAE=0.18919
+UMD | Pearson coreelation=0.99278 | Spearman correlation=0.99145 | MAE=0.32709
+Total time taken: 63.89336800575256 seconds.
