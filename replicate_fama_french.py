@@ -236,7 +236,7 @@ def compute_rmw_factor(input_ccm_filename: str,
                                                         (crsp_compustat_june['selling_general_and_administrative_expenses'].notnull())),
                                                         crsp_compustat_june.apply(lambda row: factor_bucket(row, 'OPERATING_PROFITABILITY'), axis=1),
                                                         '')
-        
+
     logging.info("Creating a column for the Fama-French year...")
     crsp_compustat_june['fama_french_year'] = crsp_compustat_june['month_end_date'].dt.year
 
@@ -386,6 +386,17 @@ def compute_cma_factor(input_ccm_filename: str,
 def compute_umd_factor(input_crsp_filename: str,
                        output_umd_factor_filename: str,
                        logging_enabled: bool = True):
+    """
+    Compute the UMD factor.
+
+    Parameters:
+        input_crsp_filename (str): The file path to the CRSP data.
+        output_umd_factor_filename (str): The file path to save the UMD factor.
+        logging_enabled (bool): A boolean indicating whether logging is enabled.
+
+    Returns:
+        None
+    """
     
     # Set up logging.
     setup_logging(logging_enabled)
@@ -603,7 +614,7 @@ def replicate_fama_french():
                        input_crsp_filename='data/processed_data/crsp.csv',
                        output_cma_factor_filename='data/processed_data/cma_factor.csv',
                        logging_enabled=True)
-    
+
     compute_umd_factor(input_crsp_filename='data/processed_data/crsp.csv',
                        output_umd_factor_filename='data/processed_data/umd_factor.csv',
                        logging_enabled=True)
