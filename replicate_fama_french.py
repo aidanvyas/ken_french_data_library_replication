@@ -2,7 +2,7 @@ import logging
 import numpy as np
 import pandas as pd
 import scipy.stats as stats
-from helper import factor_bucket, setup_logging, size_bucket, weighted_average
+from helper import factor_bucket, setup_logging, size_bucket, weighted_average, create_fama_french_portfolios
 
 
 def compute_mkt_factor(input_crsp_filename: str,
@@ -44,15 +44,13 @@ def compute_mkt_factor(input_crsp_filename: str,
 
 
 def compute_hml_factor(input_ccm_filename: str,
-                       input_crsp_filename: str,
                        output_hml_factor_filename: str,
                        logging_enabled: bool = True):
     """
     Compute the HML factor.
 
     Parameters:
-        input_ccm_filename (str): The file path to the CCM June data.
-        input_crsp_filename (str): The file path to the CRSP data.
+        input_ccm_filename (str): The file path to the merged CRSP-Compustat monthly data.
         output_hml_factor_filename (str): The file path to save the HML factor.
         logging_enabled (bool): A boolean indicating whether logging is enabled.
 
@@ -63,23 +61,18 @@ def compute_hml_factor(input_ccm_filename: str,
     # Set up logging.
     setup_logging(logging_enabled)
 
-    logging.info("Reading in the raw CCM June data, filtering for the relevant columns to save memory, and parsing the date columns...")
-    crsp_compustat_june = pd.read_csv(filepath_or_buffer=input_ccm_filename,
-                                      usecols=['month_end_date', 'permanent_number', 'BOOK_EQUITY', 'december_market_equity', 'exchange_code', 'market_equity'],
-                                      parse_dates=['month_end_date'])
+    logging.info("Reading in the processed CRSP-Compustat monthly data, filtering for the relevant columns to save memory, and parsing the date columns...")
+    crsp_compustat = pd.read_csv(filepath_or_buffer=input_ccm_filename,
+                                 usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'weight', 'BOOK_EQUITY', 'december_market_equity', 'exchange_code', 'market_equity'],
+                                 parse_dates=['month_end_date'])
     
-    logging.info("Reading in the raw CRSP data, filtering for the relevant columns to save memory, and parsing the date columns...")
-    crsp = pd.read_csv(filepath_or_buffer=input_crsp_filename,
-                       usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'market_equity', 'weight', 'fama_french_year'],
-                       parse_dates=['month_end_date'])    
-        
     logging.info("Calculating the book equity to December market equity ratio...")
-    crsp_compustat_june['book_equity_to_december_market_equity'] = crsp_compustat_june['BOOK_EQUITY'] * 1000 / crsp_compustat_june['december_market_equity']
+    crsp_compustat['book_equity_to_december_market_equity'] = crsp_compustat['BOOK_EQUITY'] * 1000 / crsp_compustat['december_market_equity']
 
     logging.info("Creating a universe of NYSE stocks with positive book equity to December market equity and market equity...")
-    nyse_hml = crsp_compustat_june[(crsp_compustat_june['exchange_code'] == 1) &
-                                   (crsp_compustat_june['book_equity_to_december_market_equity'] > 0) &
-                                   (crsp_compustat_june['market_equity'] > 0)]
+    nyse_hml = crsp_compustat[(crsp_compustat['exchange_code'] == 1) &
+                              (crsp_compustat['book_equity_to_december_market_equity'] > 0) &
+                              (crsp_compustat['market_equity'] > 0)]
 
     logging.info("Creating the market equity breakpoints...")
     nyse_market_equity_breakpoints = nyse_hml.groupby(['month_end_date'])['market_equity'].median().reset_index().rename(columns={'market_equity': 'market_equity_median'})
@@ -93,77 +86,44 @@ def compute_hml_factor(input_ccm_filename: str,
     logging.info("Merging the market equity and book equity to market equity breakpoints...")
     nyse_breakpoints = pd.merge(nyse_market_equity_breakpoints,
                                 nyse_book_equity_to_market_equity_breakpoints,
-                                how='inner',
                                 on=['month_end_date'])
 
-    logging.info("Merging the CRSP Compustat June data with the breakpoints...")
-    crsp_compustat_june = pd.merge(crsp_compustat_june,
-                                   nyse_breakpoints,
-                                   how='left',
-                                   left_on='month_end_date',
-                                   right_on='month_end_date')
+    logging.info("Merging the CRSP-Compustat monthly data with the breakpoints...")
+    crsp_compustat = pd.merge(crsp_compustat,
+                              nyse_breakpoints,
+                              how='left',
+                              on='month_end_date')
 
     logging.info("Creating the size portfolios...")
-    crsp_compustat_june['size_portfolio'] = np.where((crsp_compustat_june['book_equity_to_december_market_equity'] > 0) &
-                                                     (crsp_compustat_june['market_equity'] > 0),
-                                                     crsp_compustat_june.apply(size_bucket, axis=1),
-                                                     '')
+    crsp_compustat['size_portfolio'] = np.where((crsp_compustat['book_equity_to_december_market_equity'] > 0) &
+                                                (crsp_compustat['market_equity'] > 0),
+                                                crsp_compustat.apply(size_bucket, axis=1),
+                                                '')
 
     logging.info("Creating the value portfolios...")
-    crsp_compustat_june['factor_portfolio'] = np.where((crsp_compustat_june['book_equity_to_december_market_equity'] > 0) &
-                                                       (crsp_compustat_june['market_equity'] > 0),
-                                                       crsp_compustat_june.apply(lambda row: factor_bucket(row, 'book_equity_to_december_market_equity'), axis=1),
-                                                       '')
-
-    logging.info("Creating a column for the Fama-French year...")
-    crsp_compustat_june['fama_french_year'] = crsp_compustat_june['month_end_date'].dt.year
-
-    logging.info("Merging the CRSP data with the CRSP Compustat June data...")
-    crsp_compustat = pd.merge(crsp,
-                              crsp_compustat_june[['permanent_number', 'fama_french_year', 'size_portfolio', 'factor_portfolio']],
-                              how='left',
-                              on=['permanent_number', 'fama_french_year'])
+    crsp_compustat['factor_portfolio'] = np.where((crsp_compustat['book_equity_to_december_market_equity'] > 0) &
+                                                  (crsp_compustat['market_equity'] > 0),
+                                                  crsp_compustat.apply(lambda row: factor_bucket(row, 'book_equity_to_december_market_equity'), axis=1),
+                                                  '')
     
-    logging.info("Calculating the value weighted returns...")
-    value_weighted_returns = crsp_compustat.groupby(['month_end_date', 'size_portfolio', 'factor_portfolio']).apply(weighted_average, 'delisting_adjusted_monthly_return', 'weight').reset_index().rename(columns={0: 'value_weighted_return'})
-
-    logging.info("Creating the combined size value portfolios...")
-    value_weighted_returns['size_factor_portfolio'] = value_weighted_returns['size_portfolio'] + value_weighted_returns['factor_portfolio']
-
-    logging.info("Creating the Fama-French replicated factors...")
-    fama_french_replicated_factors = value_weighted_returns.pivot(index='month_end_date', columns='size_factor_portfolio', values='value_weighted_return').reset_index()
-
-    logging.info("Calculating the xHML factor...")
-    fama_french_replicated_factors['H'] = (fama_french_replicated_factors['BH'] + fama_french_replicated_factors['SH']) / 2
-    fama_french_replicated_factors['L'] = (fama_french_replicated_factors['BL'] + fama_french_replicated_factors['SL']) / 2
-    fama_french_replicated_factors['xHML'] = fama_french_replicated_factors['H'] - fama_french_replicated_factors['L']
-
-    logging.info("Calculating the xSHML factor..")
-    fama_french_replicated_factors['S'] = (fama_french_replicated_factors['SH'] + fama_french_replicated_factors['SM'] + fama_french_replicated_factors['SL']) / 3
-    fama_french_replicated_factors['B'] = (fama_french_replicated_factors['BH'] + fama_french_replicated_factors['BM'] + fama_french_replicated_factors['BL']) / 3
-    fama_french_replicated_factors['xSHML'] = fama_french_replicated_factors['S'] - fama_french_replicated_factors['B']
-
-    logging.info("Keeping only the date and the xHML factor and xSHML factor...")
-    fama_french_replicated_factors = fama_french_replicated_factors[['month_end_date', 'xHML', 'xSHML']]
-
-    logging.info("Renaming the month_end_date column to date...")
-    fama_french_replicated_factors = fama_french_replicated_factors.rename(columns={'month_end_date': 'date'})
+    logging.info("Creating the Fama-French portfolios...")
+    fama_french_replicated_factors = create_fama_french_portfolios(input_ccm_dataframe=crsp_compustat,
+                                                                   input_factor_name='HML',
+                                                                   save_size_portfolio=True)
 
     logging.info("Saving the Fama-French replicated factors to a CSV file...")
     fama_french_replicated_factors.to_csv(output_hml_factor_filename, index=False)
 
 
 def compute_rmw_factor(input_ccm_filename: str,
-                       input_crsp_filename: str,
                        output_rmw_factor_filename: str,
                        logging_enabled: bool = True):
     """
     Compute the RMW factor.
 
     Parameters:
-        input_ccm_filename (str): The file path to the CCM June data.
-        input_crsp_filename (str): The file path to the CRSP data.
-        output_rmw_factor_filename (str): The file path to save the RMW factor.
+        input_ccm_filename (str): The file path to the merged CRSP-Compustat monthly data.
+        output_rmw_factor_filename (str): The file path to save the HML factor.
         logging_enabled (bool): A boolean indicating whether logging is enabled.
 
     Returns:
@@ -173,25 +133,20 @@ def compute_rmw_factor(input_ccm_filename: str,
     # Set up logging.
     setup_logging(logging_enabled)
 
-    logging.info("Reading in the raw CCM June data and parsing the date columns...")
-    crsp_compustat_june = pd.read_csv(filepath_or_buffer=input_ccm_filename,
-                                      usecols=['month_end_date', 'permanent_number', 'BOOK_EQUITY', 'OPERATING_PROFITABILITY', 'december_market_equity', 'exchange_code', 'market_equity', 'revenue', 'cost_of_goods_sold', 'interest_expense', 'selling_general_and_administrative_expenses'],
-                                      parse_dates=['month_end_date'])
-
-    logging.info("Reading in the raw CRSP data and parsing the date columns...")
-    crsp = pd.read_csv(filepath_or_buffer=input_crsp_filename,
-                       usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'market_equity', 'weight', 'fama_french_year'],
-                       parse_dates=['month_end_date'])    
-
+    logging.info("Reading in the processed CRSP-Compustat monthly data, filtering for the relevant columns to save memory, and parsing the date columns...")
+    crsp_compustat = pd.read_csv(filepath_or_buffer=input_ccm_filename,
+                                 usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'weight', 'BOOK_EQUITY', 'OPERATING_PROFITABILITY', 'december_market_equity', 'market_equity', 'revenue', 'cost_of_goods_sold', 'interest_expenses', 'selling_general_and_administrative_expenses'],
+                                 parse_dates=['month_end_date'])
+    
     logging.info("Creating a universe of NYSE common stocks with positive book equity, positive market equity, positive December market equity, non-missing revenue, and non-missing one of cost of goods sold, interest expense, or selling general and administrative expenses...")
-    nyse_rmw = crsp_compustat_june[(crsp_compustat_june['exchange_code'] == 1) &
-                                   (crsp_compustat_june['BOOK_EQUITY'] > 0) &
-                                   (crsp_compustat_june['market_equity'] > 0) &
-                                   (crsp_compustat_june['december_market_equity'] > 0) &
-                                   (crsp_compustat_june['revenue'].notnull()) &
-                                   ((crsp_compustat_june['cost_of_goods_sold'].notnull()) |
-                                    (crsp_compustat_june['interest_expense'].notnull()) |
-                                    (crsp_compustat_june['selling_general_and_administrative_expenses'].notnull()))]
+    nyse_rmw = crsp_compustat[(crsp_compustat['exchange_code'] == 1) &
+                                   (crsp_compustat['BOOK_EQUITY'] > 0) &
+                                   (crsp_compustat['market_equity'] > 0) &
+                                   (crsp_compustat['december_market_equity'] > 0) &
+                                   (crsp_compustat['revenue'].notnull()) &
+                                   ((crsp_compustat['cost_of_goods_sold'].notnull()) |
+                                    (crsp_compustat['interest_expenses'].notnull()) |
+                                    (crsp_compustat['selling_general_and_administrative_expenses'].notnull()))]
 
     logging.info("Creating the market equity breakpoints...")
     nyse_market_equity_breakpoints = nyse_rmw.groupby(['month_end_date'])['market_equity'].median().reset_index().rename(columns={'market_equity': 'market_equity_median'})
@@ -205,86 +160,53 @@ def compute_rmw_factor(input_ccm_filename: str,
     logging.info("Merging the market equity and operating profitability breakpoints...")
     nyse_breakpoints = pd.merge(nyse_market_equity_breakpoints,
                                 nyse_operating_profitability_breakpoints,
-                                how='inner',
                                 on=['month_end_date'])
 
-    logging.info("Merging the CRSP Compustat June data with the breakpoints...")
-    crsp_compustat_june = pd.merge(crsp_compustat_june,
-                                   nyse_breakpoints,
-                                   how='left',
-                                   left_on='month_end_date',
-                                   right_on='month_end_date')
+    logging.info("Merging the CRSP-Compustat monthly data with the breakpoints...")
+    crsp_compustat = pd.merge(crsp_compustat,
+                              nyse_breakpoints,
+                              how='left',
+                              on='month_end_date')
 
     logging.info("Creating the size portfolios...")
-    crsp_compustat_june['size_portfolio'] = np.where((crsp_compustat_june['BOOK_EQUITY'] > 0) &
-                                                     (crsp_compustat_june['market_equity'] > 0) &
-                                                     (crsp_compustat_june['december_market_equity'] > 0) &
-                                                     (crsp_compustat_june['revenue'].notnull()) &
-                                                     ((crsp_compustat_june['cost_of_goods_sold'].notnull()) |
-                                                      (crsp_compustat_june['interest_expense'].notnull()) |
-                                                      (crsp_compustat_june['selling_general_and_administrative_expenses'].notnull())),
-                                                      crsp_compustat_june.apply(size_bucket, axis=1),
-                                                      '')
+    crsp_compustat['size_portfolio'] = np.where((crsp_compustat['BOOK_EQUITY'] > 0) &
+                                                (crsp_compustat['market_equity'] > 0) &
+                                                (crsp_compustat['december_market_equity'] > 0) &
+                                                (crsp_compustat['revenue'].notnull()) &
+                                                ((crsp_compustat['cost_of_goods_sold'].notnull()) |
+                                                 (crsp_compustat['interest_expenses'].notnull()) |
+                                                 (crsp_compustat['selling_general_and_administrative_expenses'].notnull())),
+                                                 crsp_compustat.apply(size_bucket, axis=1),
+                                                 '')
 
     logging.info("Creating the operating profitability portfolios...")
-    crsp_compustat_june['factor_portfolio'] = np.where((crsp_compustat_june['BOOK_EQUITY'] > 0) &
-                                                       (crsp_compustat_june['market_equity'] > 0) &
-                                                       (crsp_compustat_june['december_market_equity'] > 0) &
-                                                       (crsp_compustat_june['revenue'].notnull()) &
-                                                       ((crsp_compustat_june['cost_of_goods_sold'].notnull()) |
-                                                        (crsp_compustat_june['interest_expense'].notnull()) |
-                                                        (crsp_compustat_june['selling_general_and_administrative_expenses'].notnull())),
-                                                        crsp_compustat_june.apply(lambda row: factor_bucket(row, 'OPERATING_PROFITABILITY'), axis=1),
-                                                        '')
+    crsp_compustat['factor_portfolio'] = np.where((crsp_compustat['BOOK_EQUITY'] > 0) &
+                                                  (crsp_compustat['market_equity'] > 0) &
+                                                  (crsp_compustat['december_market_equity'] > 0) &
+                                                  (crsp_compustat['revenue'].notnull()) &
+                                                  ((crsp_compustat['cost_of_goods_sold'].notnull()) |
+                                                   (crsp_compustat['interest_expenses'].notnull()) |
+                                                   (crsp_compustat['selling_general_and_administrative_expenses'].notnull())),
+                                                   crsp_compustat.apply(lambda row: factor_bucket(row, 'OPERATING_PROFITABILITY'), axis=1),
+                                                   '')
 
-    logging.info("Creating a column for the Fama-French year...")
-    crsp_compustat_june['fama_french_year'] = crsp_compustat_june['month_end_date'].dt.year
-
-    logging.info("Merging the CRSP data with the CRSP Compustat June data...")
-    crsp_compustat = pd.merge(crsp,
-                              crsp_compustat_june[['permanent_number', 'fama_french_year', 'size_portfolio', 'factor_portfolio']],
-                              how='left',
-                              on=['permanent_number', 'fama_french_year'])
-    
-    logging.info("Calculating the value weighted returns...")
-    value_weighted_returns = crsp_compustat.groupby(['month_end_date', 'size_portfolio', 'factor_portfolio']).apply(weighted_average, 'delisting_adjusted_monthly_return', 'weight').reset_index().rename(columns={0: 'value_weighted_return'})
-
-    logging.info("Creating the combined size operating profitability portfolios...")
-    value_weighted_returns['size_factor_portfolio'] = value_weighted_returns['size_portfolio'] + value_weighted_returns['factor_portfolio']
-
-    logging.info("Creating the Fama-French replicated factors...")
-    fama_french_replicated_factors = value_weighted_returns.pivot(index='month_end_date', columns='size_factor_portfolio', values='value_weighted_return').reset_index()
-
-    logging.info("Calculating the xRMW factor...")
-    fama_french_replicated_factors['H'] = (fama_french_replicated_factors['BH'] + fama_french_replicated_factors['SH']) / 2
-    fama_french_replicated_factors['L'] = (fama_french_replicated_factors['BL'] + fama_french_replicated_factors['SL']) / 2
-    fama_french_replicated_factors['xRMW'] = fama_french_replicated_factors['H'] - fama_french_replicated_factors['L']
-
-    logging.info("Calculating the xSRMW factor..")
-    fama_french_replicated_factors['S'] = (fama_french_replicated_factors['SH'] + fama_french_replicated_factors['SM'] + fama_french_replicated_factors['SL']) / 3
-    fama_french_replicated_factors['B'] = (fama_french_replicated_factors['BH'] + fama_french_replicated_factors['BM'] + fama_french_replicated_factors['BL']) / 3
-    fama_french_replicated_factors['xSRMW'] = fama_french_replicated_factors['S'] - fama_french_replicated_factors['B']
-
-    logging.info("Keeping only the date and the xRMW factor and xSRMW factor...")
-    fama_french_replicated_factors = fama_french_replicated_factors[['month_end_date', 'xRMW', 'xSRMW']]
-
-    logging.info("Renaming the month_end_date column to date...")
-    fama_french_replicated_factors = fama_french_replicated_factors.rename(columns={'month_end_date': 'date'})
+    logging.info("Creating the Fama-French portfolios...")
+    fama_french_replicated_factors = create_fama_french_portfolios(input_ccm_dataframe=crsp_compustat,
+                                                                   input_factor_name='RMW',
+                                                                   save_size_portfolio=True)
 
     logging.info("Saving the Fama-French replicated factors to a CSV file...")
     fama_french_replicated_factors.to_csv(output_rmw_factor_filename, index=False)
 
 
 def compute_cma_factor(input_ccm_filename: str,
-                       input_crsp_filename: str,
                        output_cma_factor_filename: str,
                        logging_enabled: bool = True):
     """
     Compute the CMA factor.
 
     Parameters:
-        input_ccm_filename (str): The file path to the CCM June data.
-        input_crsp_filename (str): The file path to the CRSP data.
+        input_ccm_filename (str): The file path to the merged CRSP-Compustat monthly data.
         output_cma_factor_filename (str): The file path to save the CMA factor.
         logging_enabled (bool): A boolean indicating whether logging is enabled.
 
@@ -295,21 +217,16 @@ def compute_cma_factor(input_ccm_filename: str,
     # Set up logging.
     setup_logging(logging_enabled)
 
-    logging.info("Reading in the raw CCM June data and parsing the date columns...")
-    crsp_compustat_june = pd.read_csv(filepath_or_buffer=input_ccm_filename,
-                                      usecols=['month_end_date', 'permanent_number', 'INVESTMENT', 'december_market_equity', 'exchange_code', 'market_equity'],
-                                      parse_dates=['month_end_date'])
-    
-    logging.info("Reading in the raw CRSP data and parsing the date columns...")
-    crsp = pd.read_csv(filepath_or_buffer=input_crsp_filename,
-                       usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'market_equity', 'weight', 'fama_french_year'],
-                       parse_dates=['month_end_date'])    
-        
+    logging.info("Reading in the processed CRSP-Compustat monthly data, filtering for the relevant columns to save memory, and parsing the date columns...")
+    crsp_compustat = pd.read_csv(filepath_or_buffer=input_ccm_filename,
+                                 usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'weight', 'INVESTMENT', 'market_equity', 'december_market_equity'],
+                                 parse_dates=['month_end_date'])
+
     logging.info("Creating a universe of NYSE common stocks with positive investment, positive market equity, and positive December market equity...")
-    nyse_cma = crsp_compustat_june[(crsp_compustat_june['exchange_code'] == 1) &
-                                   (crsp_compustat_june['december_market_equity'] > 0) &
-                                   (crsp_compustat_june['market_equity'] > 0) & 
-                                   (crsp_compustat_june['INVESTMENT'].notnull())]
+    nyse_cma = crsp_compustat[(crsp_compustat['exchange_code'] == 1) &
+                                   (crsp_compustat['december_market_equity'] > 0) &
+                                   (crsp_compustat['market_equity'] > 0) & 
+                                   (crsp_compustat['INVESTMENT'].notnull())]
 
     logging.info("Creating the market equity breakpoints...")
     nyse_market_equity_breakpoints = nyse_cma.groupby(['month_end_date'])['market_equity'].median().reset_index().rename(columns={'market_equity': 'market_equity_median'})
@@ -327,57 +244,29 @@ def compute_cma_factor(input_ccm_filename: str,
                                 on=['month_end_date'])
 
     logging.info("Merging the CRSP Compustat June data with the breakpoints...")
-    crsp_compustat_june = pd.merge(crsp_compustat_june,
+    crsp_compustat = pd.merge(crsp_compustat,
                                    nyse_breakpoints,
                                    how='left',
                                    left_on='month_end_date',
                                    right_on='month_end_date')
 
     logging.info("Creating the size portfolios...")
-    crsp_compustat_june['size_portfolio'] = np.where((crsp_compustat_june['market_equity'] > 0) &
-                                                     (crsp_compustat_june['december_market_equity'] > 0),
-                                                     crsp_compustat_june.apply(size_bucket, axis=1),
+    crsp_compustat['size_portfolio'] = np.where((crsp_compustat['market_equity'] > 0) &
+                                                     (crsp_compustat['december_market_equity'] > 0),
+                                                     crsp_compustat.apply(size_bucket, axis=1),
                                                      '')
 
     logging.info("Creating the investment portfolios...")
-    crsp_compustat_june['factor_portfolio'] = np.where((crsp_compustat_june['market_equity'] > 0) &
-                                                       (crsp_compustat_june['december_market_equity'] > 0),
-                                                       crsp_compustat_june.apply(lambda row: factor_bucket(row, 'INVESTMENT'), axis=1),
+    crsp_compustat['factor_portfolio'] = np.where((crsp_compustat['market_equity'] > 0) &
+                                                       (crsp_compustat['december_market_equity'] > 0),
+                                                       crsp_compustat.apply(lambda row: factor_bucket(row, 'INVESTMENT'), axis=1),
                                                        '')
 
-    logging.info("Creating a column for the Fama-French year...")
-    crsp_compustat_june['fama_french_year'] = crsp_compustat_june['month_end_date'].dt.year
-
-    logging.info("Merging the CRSP data with the CRSP Compustat June data...")
-    crsp_compustat = pd.merge(crsp,
-                              crsp_compustat_june[['permanent_number', 'fama_french_year', 'size_portfolio', 'factor_portfolio']],
-                              how='left',
-                              on=['permanent_number', 'fama_french_year'])
-
-    logging.info("Calculating the value weighted returns...")
-    value_weighted_returns = crsp_compustat.groupby(['month_end_date', 'size_portfolio', 'factor_portfolio']).apply(weighted_average, 'delisting_adjusted_monthly_return', 'weight').reset_index().rename(columns={0: 'value_weighted_return'})
-
-    logging.info("Creating the combined size investment portfolios...")
-    value_weighted_returns['size_factor_portfolio'] = value_weighted_returns['size_portfolio'] + value_weighted_returns['factor_portfolio']
-
-    logging.info("Creating the Fama-French replicated factors...")
-    fama_french_replicated_factors = value_weighted_returns.pivot(index='month_end_date', columns='size_factor_portfolio', values='value_weighted_return').reset_index()
-
-    logging.info("Calculating the xCMA factor...")
-    fama_french_replicated_factors['A'] = (fama_french_replicated_factors['BH'] + fama_french_replicated_factors['SH']) / 2
-    fama_french_replicated_factors['C'] = (fama_french_replicated_factors['BL'] + fama_french_replicated_factors['SL']) / 2
-    fama_french_replicated_factors['xCMA'] = fama_french_replicated_factors['C'] - fama_french_replicated_factors['A']
-
-    logging.info("Calculating the xSCMA factor..")
-    fama_french_replicated_factors['S'] = (fama_french_replicated_factors['SH'] + fama_french_replicated_factors['SM'] + fama_french_replicated_factors['SL']) / 3
-    fama_french_replicated_factors['B'] = (fama_french_replicated_factors['BH'] + fama_french_replicated_factors['BM'] + fama_french_replicated_factors['BL']) / 3
-    fama_french_replicated_factors['xSCMA'] = fama_french_replicated_factors['S'] - fama_french_replicated_factors['B']
-
-    logging.info("Keeping only the date and the xCMA factor and xSCMA factor...")
-    fama_french_replicated_factors = fama_french_replicated_factors[['month_end_date', 'xCMA', 'xSCMA']]
-
-    logging.info("Renaming the month_end_date column to date...")
-    fama_french_replicated_factors = fama_french_replicated_factors.rename(columns={'month_end_date': 'date'})
+    logging.info("Creating the Fama-French portfolios...")
+    fama_french_replicated_factors = create_fama_french_portfolios(input_ccm_dataframe=crsp_compustat,
+                                                                   input_factor_name='CMA',
+                                                                   save_size_portfolio=True,
+                                                                   is_inverse=True)
 
     logging.info("Saving the Fama-French replicated factors to a CSV file...")
     fama_french_replicated_factors.to_csv(output_cma_factor_filename, index=False)
@@ -403,8 +292,7 @@ def compute_umd_factor(input_crsp_filename: str,
 
     logging.info("Reading in the raw CRSP data, filtering for the relevant columns to save memory, and parsing the date columns...")
     crsp = pd.read_csv(filepath_or_buffer=input_crsp_filename,
-                       usecols=['permanent_number', 'month_end_date', 'delisting_adjusted_monthly_return', 'weight', 'market_equity', 'exchange_code', 'monthly_price'],
-                          parse_dates=['month_end_date'])
+                       usecols=['permanent_number', 'month_end_date', 'delisting_adjusted_monthly_return', 'weight', 'market_equity', 'exchange_code', 'monthly_price'],parse_dates=['month_end_date'])
     
     logging.info("Calculating momentum...")
     crsp['MOMENTUM'] = crsp.groupby('permanent_number')['delisting_adjusted_monthly_return'].apply(
@@ -456,25 +344,10 @@ def compute_umd_factor(input_crsp_filename: str,
     logging.info("Creating a column for the Fama-French year...")
     crsp['fama_french_year'] = crsp['month_end_date'].dt.year
     
-    logging.info("Calculating the size and momentum weighted returns...")
-    value_weighted_returns = crsp.groupby(['month_end_date', 'size_portfolio', 'factor_portfolio']).apply(weighted_average, 'delisting_adjusted_monthly_return', 'weight').reset_index().rename(columns={0: 'value_weighted_return'})
-
-    logging.info("Creating the combined size momentum portfolios...")
-    value_weighted_returns['size_factor_portfolio'] = value_weighted_returns['size_portfolio'] + value_weighted_returns['factor_portfolio']
-
-    logging.info("Creating the Fama-French replicated factors...")
-    fama_french_replicated_factors = value_weighted_returns.pivot(index='month_end_date', columns='size_factor_portfolio', values='value_weighted_return').reset_index()
-
-    logging.info("Calculating the xUMD factor...")
-    fama_french_replicated_factors['U'] = (fama_french_replicated_factors['BH'] + fama_french_replicated_factors['SH']) / 2
-    fama_french_replicated_factors['D'] = (fama_french_replicated_factors['BL'] + fama_french_replicated_factors['SL']) / 2
-    fama_french_replicated_factors['xUMD'] = fama_french_replicated_factors['U'] - fama_french_replicated_factors['D']
-
-    logging.info("Keeping only the date and the xUMD factor...")
-    fama_french_replicated_factors = fama_french_replicated_factors[['month_end_date', 'xUMD']]
-
-    logging.info("Renaming the month_end_date column to date...")
-    fama_french_replicated_factors = fama_french_replicated_factors.rename(columns={'month_end_date': 'date'})
+    logging.info("Creating the Fama-French portfolios...")
+    fama_french_replicated_factors = create_fama_french_portfolios(input_ccm_dataframe=crsp,
+                                                                   input_factor_name='UMD',
+                                                                   save_size_portfolio=False)
 
     logging.info("Saving the Fama-French replicated factors to a CSV file...")
     fama_french_replicated_factors.to_csv(output_umd_factor_filename, index=False)
@@ -599,19 +472,16 @@ def replicate_fama_french():
     compute_mkt_factor(input_crsp_filename='data/processed_data/crsp.csv',
                        output_mkt_factor_filename='data/processed_data/mkt_factor.csv',
                        logging_enabled=True)
-    
+        
     compute_hml_factor(input_ccm_filename='data/processed_data/ccm.csv',
-                       input_crsp_filename='data/processed_data/crsp.csv',
                        output_hml_factor_filename='data/processed_data/hml_factor.csv',
                        logging_enabled=True)
-    
+
     compute_rmw_factor(input_ccm_filename='data/processed_data/ccm.csv',
-                       input_crsp_filename='data/processed_data/crsp.csv',
                        output_rmw_factor_filename='data/processed_data/rmw_factor.csv',
                        logging_enabled=True)
     
     compute_cma_factor(input_ccm_filename='data/processed_data/ccm.csv',
-                       input_crsp_filename='data/processed_data/crsp.csv',
                        output_cma_factor_filename='data/processed_data/cma_factor.csv',
                        logging_enabled=True)
 
@@ -625,4 +495,4 @@ def replicate_fama_french():
                                 input_rmw_factor_filename='data/processed_data/rmw_factor.csv',
                                 input_cma_factor_filename='data/processed_data/cma_factor.csv',
                                 input_umd_factor_filename='data/processed_data/umd_factor.csv',
-                                logging_enabled=True)
+                                logging_enabled=False)

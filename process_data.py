@@ -1,13 +1,13 @@
 import logging
 import numpy as np
 import pandas as pd
-from typing import List
+from typing import Dict
 from helper import setup_logging, coalesce
 
 
 def process_compustat_data(input_fundamentals_annual_filename: str,
                            output_compustat_filename: str,
-                           additional_columns: List[str],
+                           additional_columns: Dict[str, str] = {},
                            logging_enabled: bool = True):
     """
     Process the Compustat data.
@@ -15,7 +15,7 @@ def process_compustat_data(input_fundamentals_annual_filename: str,
     Parameters:
         input_fundamentals_annual_filename (str): The file path to the raw Compustat fundamentals annual data.
         output_compustat_filename (str): The file path to save the processed Compustat data.
-        additional_columns (List[str]): A list of additional columns to include in the processed Compustat data.
+        additional_columns (Optional[Dict[str, str]]): A dictionary of additional columns to include in the processed Compustat data.
         logging_enabled (bool): A boolean indicating whether logging is enabled.
 
     Returns:
@@ -27,7 +27,7 @@ def process_compustat_data(input_fundamentals_annual_filename: str,
 
     logging.info("Reading in the raw Compustat data, filtering for the relevant columns to save memory, and parsing the date column...")
     compustat = pd.read_csv(filepath_or_buffer=input_fundamentals_annual_filename,
-                            usecols=['gvkey', 'datadate', 'seq', 'ceq', 'txditc', 'pstkrv', 'pstkl', 'pstk', 'at', 'lt', 'revt', 'cogs', 'xint', 'xsga', 'mib', 'fyear', 'indfmt', 'datafmt', 'popsrc', 'consol'] + additional_columns,
+                            usecols=['gvkey', 'datadate', 'seq', 'ceq', 'txditc', 'pstkrv', 'pstkl', 'pstk', 'at', 'lt', 'revt', 'cogs', 'xint', 'xsga', 'mib', 'fyear', 'indfmt', 'datafmt', 'popsrc', 'consol'] + list(additional_columns.keys()),
                             parse_dates=['datadate'])
     
     logging.info("Renaming the columns to be more descriptive...")
@@ -43,7 +43,7 @@ def process_compustat_data(input_fundamentals_annual_filename: str,
                                           'lt': 'total_liabilities',
                                           'revt': 'revenue',
                                           'cogs': 'cost_of_goods_sold',
-                                          'xint': 'interest_expense',
+                                          'xint': 'interest_expenses',
                                           'xsga': 'selling_general_and_administrative_expenses',
                                           'mib': 'minority_interest_balance_sheet',
                                           'fyear': 'fiscal_year',
@@ -51,6 +51,10 @@ def process_compustat_data(input_fundamentals_annual_filename: str,
                                           'datafmt': 'data_format',
                                           'popsrc': 'population_source',
                                           'consol': 'consolidation_level'})
+    
+    logging.info("Renaming the additional columns to be more descriptive...")
+    for key, value in additional_columns.items():
+        compustat = compustat.rename(columns={key: value})
 
     # This should be done when you are downloading the data, but it is good to double check.
     # Specifically, these filters ensure that:
@@ -83,7 +87,7 @@ def process_compustat_data(input_fundamentals_annual_filename: str,
                                                                            0) - compustat['PREFERRED_STOCK'].fillna(0)
     
     logging.info("Creating a column for operating profitability, which equals revenue minus cost of goods sold, interest expense, and selling, general, and administrative expenses, divided by book equity plus minority interest from the balance sheet...")
-    compustat['OPERATING_PROFITABILITY'] = (compustat['revenue'] - compustat['cost_of_goods_sold'].fillna(0) - compustat['interest_expense'].fillna(0) - compustat['selling_general_and_administrative_expenses'].fillna(0)) / (compustat['BOOK_EQUITY'] + compustat['minority_interest_balance_sheet'].fillna(0))
+    compustat['OPERATING_PROFITABILITY'] = (compustat['revenue'] - compustat['cost_of_goods_sold'].fillna(0) - compustat['interest_expenses'].fillna(0) - compustat['selling_general_and_administrative_expenses'].fillna(0)) / (compustat['BOOK_EQUITY'] + compustat['minority_interest_balance_sheet'].fillna(0))
 
     logging.info("Creating a column for lagged total assets, which equals the total assets from the previous year...")
     compustat['LAGGED_TOTAL_ASSETS'] = compustat.sort_values(by=['global_company_key', 'month_end_date']).groupby(['global_company_key'])['total_assets'].shift(1)
@@ -92,7 +96,7 @@ def process_compustat_data(input_fundamentals_annual_filename: str,
     compustat['INVESTMENT'] = (compustat['total_assets'] - compustat['LAGGED_TOTAL_ASSETS']) / compustat['LAGGED_TOTAL_ASSETS']
 
     logging.info("Filtering the Compustat data to only include the relevant columns...")
-    compustat = compustat[['global_company_key', 'month_end_date', 'BOOK_EQUITY', 'OPERATING_PROFITABILITY', 'revenue', 'cost_of_goods_sold', 'interest_expense', 'selling_general_and_administrative_expenses', 'INVESTMENT']]
+    compustat = compustat[['global_company_key', 'month_end_date', 'BOOK_EQUITY', 'OPERATING_PROFITABILITY', 'revenue', 'cost_of_goods_sold', 'interest_expenses', 'selling_general_and_administrative_expenses', 'INVESTMENT'] + list(additional_columns.values())]
 
     logging.info("Saving the Compustat data to a CSV file...")
     compustat.to_csv(path_or_buf=output_compustat_filename, index=False)
@@ -300,7 +304,7 @@ def process_crsp_data(input_monthly_stock_file_filename: str,
     logging.info("Keeping only the essential columns and renaming the market equity column to December market equity...")
     december_market_equity = december_market_equity[['permanent_number', 'market_equity', 'year']].rename(columns={'market_equity': 'december_market_equity'})
 
-    logging.info("Creating a year column for the December market equity...")
+    logging.info("Incrementing the year column by one to match the June data...")
     december_market_equity['year'] = december_market_equity['year'] + 1
 
     logging.info("Creating a dataframe with only the June data...")
@@ -323,6 +327,7 @@ def process_crsp_data(input_monthly_stock_file_filename: str,
 
 
 def process_ccm_data(input_compustat_filename: str,
+                     input_crsp_filename: str,
                      input_crsp_june_filename: str,
                      input_linking_table_filename: str,
                      output_ccm_filename: str,
@@ -396,10 +401,27 @@ def process_ccm_data(input_compustat_filename: str,
                                    how='inner',
                                    left_on=['permanent_number', 'month_end_date'],
                                    right_on=['permanent_number', 'june_date'])
-        
-    logging.info("Saving the processed CCM June data to a CSV file...")
-    crsp_compustat_june.to_csv(output_ccm_filename, index=False)
+    
+    logging.info("Reading in the raw CRSP data, filtering for the relevant columns to save memory, and parsing the date column...")
+    crsp = pd.read_csv(filepath_or_buffer=input_crsp_filename,
+                       usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'weight', 'fama_french_year'],
+                       parse_dates=['month_end_date'])
 
+    logging.info("Creating a column for the Fama-French year...")
+    crsp_compustat_june['fama_french_year'] = crsp_compustat_june['month_end_date'].dt.year
+
+    logging.info("Dropping the unnecessary columns...")
+    crsp_compustat_june = crsp_compustat_june.drop(['month_end_date', 'exchange_code', 'delisting_adjusted_monthly_return', 'weight'], axis=1)
+
+    logging.info("Merging the CRSP data with the CRSP Compustat June data...")
+    crsp_compustat = pd.merge(crsp,
+                              crsp_compustat_june,
+                              how='inner',
+                              on=['permanent_number', 'fama_french_year'])
+    
+    logging.info("Saving the processed CCM data to a CSV file...")
+    crsp_compustat.to_csv(output_ccm_filename, index=False)
+    
 
 def process_data():
     """
@@ -414,7 +436,7 @@ def process_data():
 
     process_compustat_data(input_fundamentals_annual_filename='data/raw_data/raw_compustat_fundamentals_annual.csv',
                            output_compustat_filename='data/processed_data/compustat.csv',
-                           additional_columns=[],
+                           additional_columns={},
                            logging_enabled=True)
 
     process_crsp_data(input_monthly_stock_file_filename='data/raw_data/raw_crsp_monthly_stock_files.csv',
@@ -424,6 +446,7 @@ def process_data():
                       output_crsp_june_filename='data/processed_data/crsp_june.csv')
 
     process_ccm_data(input_compustat_filename='data/processed_data/compustat.csv',
+                     input_crsp_filename='data/processed_data/crsp.csv',
                      input_crsp_june_filename='data/processed_data/crsp_june.csv',
                      input_linking_table_filename='data/raw_data/raw_crsp_compustat_linking_table.csv',
                      output_ccm_filename='data/processed_data/ccm.csv',
