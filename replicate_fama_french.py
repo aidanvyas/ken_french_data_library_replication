@@ -353,7 +353,7 @@ def compute_umd_factor(input_crsp_filename: str,
     fama_french_replicated_factors.to_csv(output_umd_factor_filename, index=False)
 
 
-def compare_fama_french_factors(input_fama_french_3_factors_filename: str,
+def compare_fama_french_factors(input_fama_french_factors_filename: str,
                                 input_mkt_factor_filename: str,
                                 input_hml_factor_filename: str,
                                 input_rmw_factor_filename: str,
@@ -364,7 +364,7 @@ def compare_fama_french_factors(input_fama_french_3_factors_filename: str,
     Compare the Fama-French factors with the replicated factors.
 
     Parameters:
-        input_fama_french_3_factors_filename (str): The file path to the Fama-French 3 factors.
+        input_fama_french_factors_filename (str): The file path to the Fama-French 6 factors.
         input_mkt_factor_filename (str): The file path to the Mkt factor.
         input_hml_factor_filename (str): The file path to the HML factor.
         input_rmw_factor_filename (str): The file path to the RMW factor.
@@ -378,9 +378,9 @@ def compare_fama_french_factors(input_fama_french_3_factors_filename: str,
     # Set up logging.
     setup_logging(logging_enabled)
 
-    logging.info("Reading in the Fama-French factors, filtering for the relevant columns to save memory, and parsing the date column...")
-    fama_french_three_factors = pd.read_csv(filepath_or_buffer=input_fama_french_3_factors_filename,
-                                            parse_dates=['date'])
+    logging.info("Reading in the Fama-French factors and parsing the date column...")
+    fama_french_factors = pd.read_csv(filepath_or_buffer=input_fama_french_factors_filename,
+                                      parse_dates=['date'])
 
     logging.info("Reading in the Mkt factor and parsing the date column...")
     mkt_factor = pd.read_csv(filepath_or_buffer=input_mkt_factor_filename,
@@ -403,10 +403,10 @@ def compare_fama_french_factors(input_fama_french_3_factors_filename: str,
                                 parse_dates=['date'])
 
     logging.info("Parsing the date column for the Fama-French factors...")
-    fama_french_three_factors['date'] = pd.to_datetime(fama_french_three_factors['date'], format='%Y%m') + pd.offsets.MonthEnd(0)
+    fama_french_factors['date'] = pd.to_datetime(fama_french_factors['date'], format='%Y%m') + pd.offsets.MonthEnd(0)
     
     logging.info("Merging the Fama-French factors with the replicated Mkt factor...")
-    fama_french_comparision = pd.merge(fama_french_three_factors,
+    fama_french_comparision = pd.merge(fama_french_factors,
                                        mkt_factor,
                                        how='inner',
                                        on='date')
@@ -489,10 +489,10 @@ def replicate_fama_french():
                        output_umd_factor_filename='data/processed_data/umd_factor.csv',
                        logging_enabled=True)
     
-    compare_fama_french_factors(input_fama_french_3_factors_filename='data/raw_data/raw_fama_french_6_factors.csv',
+    compare_fama_french_factors(input_fama_french_factors_filename='data/raw_data/raw_fama_french_6_factors.csv',
                                 input_mkt_factor_filename='data/processed_data/mkt_factor.csv',
                                 input_hml_factor_filename='data/processed_data/hml_factor.csv',
                                 input_rmw_factor_filename='data/processed_data/rmw_factor.csv',
                                 input_cma_factor_filename='data/processed_data/cma_factor.csv',
                                 input_umd_factor_filename='data/processed_data/umd_factor.csv',
-                                logging_enabled=False)
+                                logging_enabled=True)

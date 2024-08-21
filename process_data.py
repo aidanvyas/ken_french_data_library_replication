@@ -1,12 +1,13 @@
 import logging
 import numpy as np
 import pandas as pd
-from typing import Dict
+from typing import Dict, List, Callable
 from helper import setup_logging, coalesce
-
+from create_predictors import gross_profitability
 
 def process_compustat_data(input_fundamentals_annual_filename: str,
                            output_compustat_filename: str,
+                           additional_variables: List[Callable] = [],
                            additional_columns: Dict[str, str] = {},
                            logging_enabled: bool = True):
     """
@@ -15,6 +16,7 @@ def process_compustat_data(input_fundamentals_annual_filename: str,
     Parameters:
         input_fundamentals_annual_filename (str): The file path to the raw Compustat fundamentals annual data.
         output_compustat_filename (str): The file path to save the processed Compustat data.
+        additional_variables (Optional[List[Callable]]): A list of additional variables to create for the processed Compustat data.
         additional_columns (Optional[Dict[str, str]]): A dictionary of additional columns to include in the processed Compustat data.
         logging_enabled (bool): A boolean indicating whether logging is enabled.
 
@@ -95,8 +97,13 @@ def process_compustat_data(input_fundamentals_annual_filename: str,
     logging.info("Creating a column for investment, which equals the change in total assets divided by the lagged total assets...")
     compustat['INVESTMENT'] = (compustat['total_assets'] - compustat['LAGGED_TOTAL_ASSETS']) / compustat['LAGGED_TOTAL_ASSETS']
 
-    logging.info("Filtering the Compustat data to only include the relevant columns...")
-    compustat = compustat[['global_company_key', 'month_end_date', 'BOOK_EQUITY', 'OPERATING_PROFITABILITY', 'revenue', 'cost_of_goods_sold', 'interest_expenses', 'selling_general_and_administrative_expenses', 'INVESTMENT'] + list(additional_columns.values())]
+    if additional_variables:
+        logging.info("Creating additional columns for the Compustat data...")
+        for variable in additional_variables:
+            compustat = variable(input_compustat_dataframe=compustat)
+
+    logging.info("Filtering the Compustat data to only include the relevant columns...")    
+    compustat = compustat[['global_company_key', 'month_end_date', 'BOOK_EQUITY', 'OPERATING_PROFITABILITY', 'revenue', 'cost_of_goods_sold', 'interest_expenses', 'selling_general_and_administrative_expenses', 'INVESTMENT'] + list(additional_columns.values()) + [variable.__name__.upper() for variable in additional_variables]]
 
     logging.info("Saving the Compustat data to a CSV file...")
     compustat.to_csv(path_or_buf=output_compustat_filename, index=False)
@@ -125,8 +132,12 @@ def handle_delistings(input_delisting_information_filename: str,
                                                                   'DLRET': 'delisting_return',
                                                                   'DLSTDT': 'delisting_date'})
 
-    logging.info("Calculating the month-end date for the delisting information...")
+    logging.info("Creating a column for the month-end date for the delisting information data...")
     delisting_information['month_end_date'] = pd.to_datetime(delisting_information['delisting_date']) + pd.offsets.MonthEnd(0)
+
+    # The CRSP month_end_date is the last trading day of the month, but for the sake of consistency, we set it to the last calendar day of the month.
+    logging.info("Calculating the month-end date for the CRSP monthly stock file data...")
+    crsp_monthly['month_end_date'] = crsp_monthly['month_end_date'] + pd.offsets.MonthEnd(0)
 
     logging.info("Merging the CRSP monthly stock file and delisting information dataframes...")
     crsp = pd.merge(crsp_monthly,
@@ -322,6 +333,9 @@ def process_crsp_data(input_monthly_stock_file_filename: str,
     logging.info("Sorting the CRSP June data by company and then date, dropping any duplicates...")
     crsp_june = crsp_june.sort_values(by=['permanent_number', 'month_end_date']).drop_duplicates()
 
+    # sort by month_end_date
+    crsp_june = crsp_june.sort_values(by=['month_end_date'])
+
     logging.info("Saving the processed data to a CSV file...")
     crsp_june.to_csv(output_crsp_june_filename, index=False)
 
@@ -354,7 +368,7 @@ def process_ccm_data(input_compustat_filename: str,
                             parse_dates=['month_end_date'])
     crsp_june = pd.read_csv(filepath_or_buffer=input_crsp_june_filename,
                             parse_dates=['month_end_date'])
-
+          
     logging.info("Reading in the raw CRSP Compustat linking table data, filtering for the relevant columns to save memory, and parsing the date columns...")
     linking_table = pd.read_csv(filepath_or_buffer=input_linking_table_filename,
                                 usecols=['gvkey', 'LPERMNO', 'LINKDT', 'LINKENDDT'],
@@ -365,7 +379,7 @@ def process_ccm_data(input_compustat_filename: str,
                                                   'LPERMNO': 'permanent_number',
                                                   'LINKDT': 'link_start_date',
                                                   'LINKENDDT': 'link_end_date'})
-
+    
     # Securities that have not delisted are given an end date of 'E', so we will replace this with today's date.
     logging.info("Replacing the 'E' values with NaN...")
     linking_table['link_end_date'] = linking_table['link_end_date'].replace('E', np.nan)
@@ -373,15 +387,15 @@ def process_ccm_data(input_compustat_filename: str,
     logging.info("Filling the missing values in the link end date column with today's date...")
     linking_table['link_end_date'] = linking_table['link_end_date'].fillna(pd.to_datetime('today'))
 
-    logging.info("Converting the link end date column to a datetime object...")
-    linking_table['link_end_date'] = pd.to_datetime(linking_table['link_end_date'])
-
     logging.info("Merging the relevant Compustat data with the linking table data...")
     linking_table = pd.merge(compustat,
                              linking_table,
                              how='left',
                              on='global_company_key')
 
+    logging.info("Converting the link end date column to a datetime object...")
+    linking_table['link_end_date'] = pd.to_datetime(linking_table['link_end_date'])
+    
     logging.info("Creating a year end column for the linking table data...")
     linking_table['year_end'] = linking_table['month_end_date'] + pd.offsets.YearEnd(0)
 
@@ -389,19 +403,19 @@ def process_ccm_data(input_compustat_filename: str,
     linking_table['june_date'] = linking_table['year_end'] + pd.offsets.MonthEnd(6)
 
     logging.info("Filtering the linking table data by date to only include the relevant data...")
-    linking_table = linking_table[(linking_table['june_date'] >= linking_table['link_start_date']) &
-                                  (linking_table['june_date'] <= linking_table['link_end_date'])]
-    
+    linking_table = linking_table[(linking_table['month_end_date'] >= linking_table['link_start_date']) &
+                                  (linking_table['month_end_date'] <= linking_table['link_end_date'])]
+
     logging.info("Dropping the unneeded date columns...")
     linking_table = linking_table.drop(['link_start_date', 'link_end_date', 'year_end', 'month_end_date'], axis=1)
-        
+
     logging.info("Merging the CRSP June data with the linking table data...")
     crsp_compustat_june = pd.merge(crsp_june,
                                    linking_table,
                                    how='inner',
                                    left_on=['permanent_number', 'month_end_date'],
                                    right_on=['permanent_number', 'june_date'])
-    
+        
     logging.info("Reading in the raw CRSP data, filtering for the relevant columns to save memory, and parsing the date column...")
     crsp = pd.read_csv(filepath_or_buffer=input_crsp_filename,
                        usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'weight', 'fama_french_year'],
@@ -416,12 +430,12 @@ def process_ccm_data(input_compustat_filename: str,
     logging.info("Merging the CRSP data with the CRSP Compustat June data...")
     crsp_compustat = pd.merge(crsp,
                               crsp_compustat_june,
-                              how='inner',
+                              how='left',
                               on=['permanent_number', 'fama_french_year'])
-    
+        
     logging.info("Saving the processed CCM data to a CSV file...")
     crsp_compustat.to_csv(output_ccm_filename, index=False)
-    
+
 
 def process_data():
     """
@@ -443,7 +457,8 @@ def process_data():
                       input_historical_descriptive_information_filename='data/raw_data/raw_crsp_historical_descriptive_information.csv',
                       input_delisting_information_filename='data/raw_data/raw_crsp_delisting_information.csv',
                       output_crsp_filename='data/processed_data/crsp.csv',
-                      output_crsp_june_filename='data/processed_data/crsp_june.csv')
+                      output_crsp_june_filename='data/processed_data/crsp_june.csv',
+                      logging_enabled=True)
 
     process_ccm_data(input_compustat_filename='data/processed_data/compustat.csv',
                      input_crsp_filename='data/processed_data/crsp.csv',

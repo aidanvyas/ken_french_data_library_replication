@@ -1,6 +1,6 @@
-Mkt-Rf | Pearson coreelation=0.99993 | Spearman correlation=0.99989 | MAE=0.02983
-SMB | Pearson coreelation=0.99788 | Spearman correlation=0.99716 | MAE=0.14723
-HML | Pearson coreelation=0.99219 | Spearman correlation=0.98662 | MAE=0.25101
-RMW | Pearson coreelation=0.99291 | Spearman correlation=0.98633 | MAE=0.21697
-CMA | Pearson coreelation=0.99209 | Spearman correlation=0.99020 | MAE=0.18518
-UMD | Pearson coreelation=0.99278 | Spearman correlation=0.99145 | MAE=0.32709
+Mkt-Rf | Pearson coreelation=0.99995 | Spearman correlation=0.99991 | MAE=0.02709
+SMB | Pearson coreelation=0.99731 | Spearman correlation=0.99684 | MAE=0.15331
+HML | Pearson coreelation=0.99226 | Spearman correlation=0.98772 | MAE=0.25556
+RMW | Pearson coreelation=0.99196 | Spearman correlation=0.98630 | MAE=0.21710
+CMA | Pearson coreelation=0.99265 | Spearman correlation=0.99099 | MAE=0.18462
+UMD | Pearson coreelation=0.99333 | Spearman correlation=0.99196 | MAE=0.30999
