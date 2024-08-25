@@ -57,13 +57,13 @@ def compute_hml_factor(input_ccm_filename: str,
     Returns:
         None
     """
-    
+
     # Set up logging.
     setup_logging(logging_enabled)
 
     logging.info("Reading in the processed CRSP-Compustat monthly data, filtering for the relevant columns to save memory, and parsing the date columns...")
     crsp_compustat = pd.read_csv(filepath_or_buffer=input_ccm_filename,
-                                 usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'weight', 'BOOK_EQUITY', 'december_market_equity', 'exchange_code', 'market_equity'],
+                                 usecols=['month_end_date', 'delisting_adjusted_monthly_return', 'weight', 'exchange_code', 'BOOK_EQUITY', 'december_market_equity', 'june_market_equity'],
                                  parse_dates=['month_end_date'])
     
     logging.info("Calculating the book equity to December market equity ratio...")
@@ -72,10 +72,10 @@ def compute_hml_factor(input_ccm_filename: str,
     logging.info("Creating a universe of NYSE stocks with positive book equity to December market equity and market equity...")
     nyse_hml = crsp_compustat[(crsp_compustat['exchange_code'] == 1) &
                               (crsp_compustat['book_equity_to_december_market_equity'] > 0) &
-                              (crsp_compustat['market_equity'] > 0)]
+                              (crsp_compustat['june_market_equity'] > 0)]
 
     logging.info("Creating the market equity breakpoints...")
-    nyse_market_equity_breakpoints = nyse_hml.groupby(['month_end_date'])['market_equity'].median().reset_index().rename(columns={'market_equity': 'market_equity_median'})
+    nyse_market_equity_breakpoints = nyse_hml.groupby(['month_end_date'])['june_market_equity'].median().reset_index().rename(columns={'june_market_equity': 'june_market_equity_median'})
 
     logging.info("Creating the book equity to December market equity breakpoints...")
     nyse_book_equity_to_market_equity_breakpoints = nyse_hml.groupby(['month_end_date'])['book_equity_to_december_market_equity'].describe(percentiles=[0.3, 0.7]).reset_index()
@@ -93,16 +93,16 @@ def compute_hml_factor(input_ccm_filename: str,
                               nyse_breakpoints,
                               how='left',
                               on='month_end_date')
-
+    
     logging.info("Creating the size portfolios...")
     crsp_compustat['size_portfolio'] = np.where((crsp_compustat['book_equity_to_december_market_equity'] > 0) &
-                                                (crsp_compustat['market_equity'] > 0),
-                                                crsp_compustat.apply(size_bucket, axis=1),
+                                                (crsp_compustat['june_market_equity'] > 0),
+                                                crsp_compustat.apply(size_bucket, axis=1, args=('june_market_equity',)),
                                                 '')
 
     logging.info("Creating the value portfolios...")
     crsp_compustat['factor_portfolio'] = np.where((crsp_compustat['book_equity_to_december_market_equity'] > 0) &
-                                                  (crsp_compustat['market_equity'] > 0),
+                                                  (crsp_compustat['june_market_equity'] > 0),
                                                   crsp_compustat.apply(lambda row: factor_bucket(row, 'book_equity_to_december_market_equity'), axis=1),
                                                   '')
     
@@ -135,13 +135,13 @@ def compute_rmw_factor(input_ccm_filename: str,
 
     logging.info("Reading in the processed CRSP-Compustat monthly data, filtering for the relevant columns to save memory, and parsing the date columns...")
     crsp_compustat = pd.read_csv(filepath_or_buffer=input_ccm_filename,
-                                 usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'weight', 'BOOK_EQUITY', 'OPERATING_PROFITABILITY', 'december_market_equity', 'market_equity', 'revenue', 'cost_of_goods_sold', 'interest_expenses', 'selling_general_and_administrative_expenses'],
+                                 usecols=['month_end_date', 'delisting_adjusted_monthly_return', 'weight', 'exchange_code', 'BOOK_EQUITY', 'OPERATING_PROFITABILITY', 'december_market_equity', 'june_market_equity', 'revenue', 'cost_of_goods_sold', 'interest_expenses', 'selling_general_and_administrative_expenses'],
                                  parse_dates=['month_end_date'])
     
     logging.info("Creating a universe of NYSE common stocks with positive book equity, positive market equity, positive December market equity, non-missing revenue, and non-missing one of cost of goods sold, interest expense, or selling general and administrative expenses...")
     nyse_rmw = crsp_compustat[(crsp_compustat['exchange_code'] == 1) &
                                    (crsp_compustat['BOOK_EQUITY'] > 0) &
-                                   (crsp_compustat['market_equity'] > 0) &
+                                   (crsp_compustat['june_market_equity'] > 0) &
                                    (crsp_compustat['december_market_equity'] > 0) &
                                    (crsp_compustat['revenue'].notnull()) &
                                    ((crsp_compustat['cost_of_goods_sold'].notnull()) |
@@ -149,7 +149,7 @@ def compute_rmw_factor(input_ccm_filename: str,
                                     (crsp_compustat['selling_general_and_administrative_expenses'].notnull()))]
 
     logging.info("Creating the market equity breakpoints...")
-    nyse_market_equity_breakpoints = nyse_rmw.groupby(['month_end_date'])['market_equity'].median().reset_index().rename(columns={'market_equity': 'market_equity_median'})
+    nyse_market_equity_breakpoints = nyse_rmw.groupby(['month_end_date'])['june_market_equity'].median().reset_index().rename(columns={'june_market_equity': 'june_market_equity_median'})
 
     logging.info("Creating the operating profitability breakpoints...")
     nyse_operating_profitability_breakpoints = nyse_rmw.groupby(['month_end_date'])['OPERATING_PROFITABILITY'].describe(percentiles=[0.3, 0.7]).reset_index()
@@ -170,18 +170,18 @@ def compute_rmw_factor(input_ccm_filename: str,
 
     logging.info("Creating the size portfolios...")
     crsp_compustat['size_portfolio'] = np.where((crsp_compustat['BOOK_EQUITY'] > 0) &
-                                                (crsp_compustat['market_equity'] > 0) &
+                                                (crsp_compustat['june_market_equity'] > 0) &
                                                 (crsp_compustat['december_market_equity'] > 0) &
                                                 (crsp_compustat['revenue'].notnull()) &
                                                 ((crsp_compustat['cost_of_goods_sold'].notnull()) |
                                                  (crsp_compustat['interest_expenses'].notnull()) |
                                                  (crsp_compustat['selling_general_and_administrative_expenses'].notnull())),
-                                                 crsp_compustat.apply(size_bucket, axis=1),
+                                                 crsp_compustat.apply(size_bucket, axis=1, args=('june_market_equity',)),
                                                  '')
 
     logging.info("Creating the operating profitability portfolios...")
     crsp_compustat['factor_portfolio'] = np.where((crsp_compustat['BOOK_EQUITY'] > 0) &
-                                                  (crsp_compustat['market_equity'] > 0) &
+                                                  (crsp_compustat['june_market_equity'] > 0) &
                                                   (crsp_compustat['december_market_equity'] > 0) &
                                                   (crsp_compustat['revenue'].notnull()) &
                                                   ((crsp_compustat['cost_of_goods_sold'].notnull()) |
@@ -219,17 +219,17 @@ def compute_cma_factor(input_ccm_filename: str,
 
     logging.info("Reading in the processed CRSP-Compustat monthly data, filtering for the relevant columns to save memory, and parsing the date columns...")
     crsp_compustat = pd.read_csv(filepath_or_buffer=input_ccm_filename,
-                                 usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'weight', 'INVESTMENT', 'market_equity', 'december_market_equity'],
+                                 usecols=['month_end_date', 'delisting_adjusted_monthly_return', 'weight', 'exchange_code', 'INVESTMENT', 'june_market_equity', 'december_market_equity'],
                                  parse_dates=['month_end_date'])
 
     logging.info("Creating a universe of NYSE common stocks with positive investment, positive market equity, and positive December market equity...")
     nyse_cma = crsp_compustat[(crsp_compustat['exchange_code'] == 1) &
                                    (crsp_compustat['december_market_equity'] > 0) &
-                                   (crsp_compustat['market_equity'] > 0) & 
+                                   (crsp_compustat['june_market_equity'] > 0) & 
                                    (crsp_compustat['INVESTMENT'].notnull())]
 
     logging.info("Creating the market equity breakpoints...")
-    nyse_market_equity_breakpoints = nyse_cma.groupby(['month_end_date'])['market_equity'].median().reset_index().rename(columns={'market_equity': 'market_equity_median'})
+    nyse_market_equity_breakpoints = nyse_cma.groupby(['month_end_date'])['june_market_equity'].median().reset_index().rename(columns={'june_market_equity': 'june_market_equity_median'})
 
     logging.info("Creating the investment breakpoints...")
     nyse_investment_breakpoints = nyse_cma.groupby(['month_end_date'])['INVESTMENT'].describe(percentiles=[0.3, 0.7]).reset_index()
@@ -245,22 +245,21 @@ def compute_cma_factor(input_ccm_filename: str,
 
     logging.info("Merging the CRSP Compustat June data with the breakpoints...")
     crsp_compustat = pd.merge(crsp_compustat,
-                                   nyse_breakpoints,
-                                   how='left',
-                                   left_on='month_end_date',
-                                   right_on='month_end_date')
+                              nyse_breakpoints,
+                              how='left',
+                              on='month_end_date')
 
     logging.info("Creating the size portfolios...")
-    crsp_compustat['size_portfolio'] = np.where((crsp_compustat['market_equity'] > 0) &
-                                                     (crsp_compustat['december_market_equity'] > 0),
-                                                     crsp_compustat.apply(size_bucket, axis=1),
-                                                     '')
+    crsp_compustat['size_portfolio'] = np.where((crsp_compustat['june_market_equity'] > 0) &
+                                                (crsp_compustat['december_market_equity'] > 0),
+                                                crsp_compustat.apply(size_bucket, axis=1, args=('june_market_equity',)),
+                                                '')
 
     logging.info("Creating the investment portfolios...")
-    crsp_compustat['factor_portfolio'] = np.where((crsp_compustat['market_equity'] > 0) &
-                                                       (crsp_compustat['december_market_equity'] > 0),
-                                                       crsp_compustat.apply(lambda row: factor_bucket(row, 'INVESTMENT'), axis=1),
-                                                       '')
+    crsp_compustat['factor_portfolio'] = np.where((crsp_compustat['june_market_equity'] > 0) &
+                                                  (crsp_compustat['december_market_equity'] > 0),
+                                                  crsp_compustat.apply(lambda row: factor_bucket(row, 'INVESTMENT'), axis=1),
+                                                  '')
 
     logging.info("Creating the Fama-French portfolios...")
     fama_french_replicated_factors = create_fama_french_portfolios(input_ccm_dataframe=crsp_compustat,
@@ -292,7 +291,8 @@ def compute_umd_factor(input_crsp_filename: str,
 
     logging.info("Reading in the raw CRSP data, filtering for the relevant columns to save memory, and parsing the date columns...")
     crsp = pd.read_csv(filepath_or_buffer=input_crsp_filename,
-                       usecols=['permanent_number', 'month_end_date', 'delisting_adjusted_monthly_return', 'weight', 'market_equity', 'exchange_code', 'monthly_price'],parse_dates=['month_end_date'])
+                       usecols=['permanent_number', 'month_end_date', 'delisting_adjusted_monthly_return', 'weight', 'market_equity', 'exchange_code', 'monthly_price'],
+                       parse_dates=['month_end_date'])
     
     logging.info("Calculating momentum...")
     crsp['MOMENTUM'] = crsp.groupby('permanent_number')['delisting_adjusted_monthly_return'].apply(
@@ -331,7 +331,7 @@ def compute_umd_factor(input_crsp_filename: str,
     crsp['size_portfolio'] = np.where(crsp['market_equity'] > 0 &
                                      (crsp['monthly_price'].shift(12).notnull()) &
                                      (crsp['delisting_adjusted_monthly_return'].shift(1).notnull()),
-                                     crsp.apply(size_bucket, axis=1),
+                                     crsp.apply(size_bucket, axis=1, args=('market_equity',)),
                                      '')
     
     logging.info("Creating the momentum portfolios...")
@@ -436,7 +436,7 @@ def compare_fama_french_factors(input_fama_french_factors_filename: str,
                                        on='date')
 
     logging.info("Filtering the Fama-French factors to only include data from 1963 onwards...")
-    fama_french_comparision = fama_french_comparision[(fama_french_comparision['date'] >= '01/01/1963') & (fama_french_comparision['date'] <= '12/31/2023')]
+    fama_french_comparision = fama_french_comparision[(fama_french_comparision['date'] >= '01/01/1963') & (fama_french_comparision['date'] <= '11/30/2023')]
 
     logging.info("Subtracting the risk-free rate from the Mkt factor...")
     fama_french_comparision['xMkt-Rf'] = ((fama_french_comparision['xMkt'] - fama_french_comparision['RF'] / 100) * 100).round(2)
@@ -472,7 +472,7 @@ def replicate_fama_french():
     compute_mkt_factor(input_crsp_filename='data/processed_data/crsp.csv',
                        output_mkt_factor_filename='data/processed_data/mkt_factor.csv',
                        logging_enabled=True)
-        
+
     compute_hml_factor(input_ccm_filename='data/processed_data/ccm.csv',
                        output_hml_factor_filename='data/processed_data/hml_factor.csv',
                        logging_enabled=True)

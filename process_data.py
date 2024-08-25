@@ -145,12 +145,12 @@ def handle_delistings(input_delisting_information_filename: str,
                     how='left',
                     on=['permanent_number', 'month_end_date'])
 
+    logging.info("Coercing the delisting returns to be numeric...")
+    crsp['delisting_return'] = pd.to_numeric(crsp['delisting_return'], errors='coerce')
+
     logging.info("Setting the delisting and monthly returns to be zero if it is null...")
     crsp['delisting_return'] = crsp['delisting_return'].fillna(0)
     crsp['monthly_return'] = crsp['monthly_return'].fillna(0)
-
-    logging.info("Coercing the delisting returns to be numeric...")
-    crsp['delisting_return'] = pd.to_numeric(crsp['delisting_return'], errors='coerce')
 
     logging.info("Calculating the delisting adjusted monthly returns...")
     crsp['delisting_adjusted_monthly_return'] = (1 + crsp['monthly_return']) * (1 + crsp['delisting_return']) - 1
@@ -275,7 +275,7 @@ def process_crsp_data(input_monthly_stock_file_filename: str,
     logging.info("Handling delistings...")
     crsp = handle_delistings(input_delisting_information_filename=input_delisting_information_filename,
                              crsp_monthly=crsp_monthly)
-    
+        
     logging.info("Calculating the market equity...")
     crsp['market_equity'] = crsp['monthly_price'] * crsp['shares_outstanding']
 
@@ -328,7 +328,7 @@ def process_crsp_data(input_monthly_stock_file_filename: str,
                          on=['permanent_number', 'year'])
     
     logging.info("Keeping only the essential columns for the CRSP data...")
-    crsp_june = crsp_june[['permanent_number', 'month_end_date', 'exchange_code', 'delisting_adjusted_monthly_return', 'market_equity', 'weight', 'december_market_equity']]
+    crsp_june = crsp_june[['permanent_number', 'month_end_date', 'exchange_code', 'delisting_adjusted_monthly_return', 'market_equity', 'weight', 'december_market_equity']].rename(columns={'market_equity': 'june_market_equity'})
 
     logging.info("Sorting the CRSP June data by company and then date, dropping any duplicates...")
     crsp_june = crsp_june.sort_values(by=['permanent_number', 'month_end_date']).drop_duplicates()
@@ -368,7 +368,7 @@ def process_ccm_data(input_compustat_filename: str,
                             parse_dates=['month_end_date'])
     crsp_june = pd.read_csv(filepath_or_buffer=input_crsp_june_filename,
                             parse_dates=['month_end_date'])
-          
+              
     logging.info("Reading in the raw CRSP Compustat linking table data, filtering for the relevant columns to save memory, and parsing the date columns...")
     linking_table = pd.read_csv(filepath_or_buffer=input_linking_table_filename,
                                 usecols=['gvkey', 'LPERMNO', 'LINKDT', 'LINKENDDT'],
@@ -418,7 +418,7 @@ def process_ccm_data(input_compustat_filename: str,
         
     logging.info("Reading in the raw CRSP data, filtering for the relevant columns to save memory, and parsing the date column...")
     crsp = pd.read_csv(filepath_or_buffer=input_crsp_filename,
-                       usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'weight', 'fama_french_year'],
+                       usecols=['month_end_date', 'permanent_number', 'exchange_code', 'delisting_adjusted_monthly_return', 'weight','fama_french_year'],
                        parse_dates=['month_end_date'])
 
     logging.info("Creating a column for the Fama-French year...")

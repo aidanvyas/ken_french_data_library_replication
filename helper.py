@@ -34,19 +34,20 @@ def coalesce(*args):
     return reduce(lambda x, y: x.where(x.notnull(), y), args)
 
 
-def size_bucket(row):
+def size_bucket(row, factor):
     """
     Helper function to assign a stock to the correct size bucket.
 
     Parameters:
         row (pd.Series): A pandas series.
+        factor (str): A string indicating the market equity factor.
 
     Returns:
         value (str): A string indicating the size bucket.
     """
-    if row['market_equity'] == np.nan:
+    if row[factor] == np.nan:
         value=''
-    elif row['market_equity'] <= row['market_equity_median']:
+    elif row[factor] <= row[factor + '_median']:
         value='S'
     else:
         value='B'
