@@ -2,7 +2,7 @@ import logging
 from functools import reduce
 import pandas as pd
 import numpy as np
-
+import re
 
 def setup_logging(logging_enabled):
     """
@@ -129,3 +129,58 @@ def create_fama_french_portfolios(input_ccm_dataframe: pd.DataFrame,
         fama_french_replicated_factors = fama_french_replicated_factors[['month_end_date', 'xHML']]
         fama_french_replicated_factors = fama_french_replicated_factors.rename(columns={'month_end_date': 'date', 'xHML': 'x' + input_factor_name})
     return fama_french_replicated_factors
+
+
+def latex_escape(text):
+    """
+    Escape special characters in the given text with their LaTeX equivalents.
+
+    Args:
+        text (str): The input text containing special characters.
+
+    Returns:
+        str: The text with special characters replaced by their LaTeX equivalents.
+    """
+
+    # Define the mapping of special characters to their LaTeX equivalents.
+    LATEX_MAPPING = {
+        '&': r'\&',
+        '%': r'\%',
+        '#': r'\#',
+        '_': r'\_',
+        '{': r'\{',
+        '}': r'\}',
+        '~': r'\textasciitilde',
+        '^': r'\textasciicircum',
+        '\\': r'\textbackslash',
+        '−': r'-',
+    }
+
+    # Create a regular expression pattern to match special characters.
+    LATEX_REGEX = re.compile('|'.join(re.escape(str(key)) for key in LATEX_MAPPING.keys()))
+
+    # Replace special characters with their LaTeX equivalents.
+    return LATEX_REGEX.sub(lambda mo: LATEX_MAPPING[mo.group()], text)
+
+
+def add_significance_stars(value: float, t_stat: float) -> str:
+    """
+    Add significance stars to the value based on the t-statistic.
+
+    Args:
+        value (float):
+            The value to add significance stars to.
+        t_stat (float):
+            The t-statistic to determine the number of significance stars.
+    
+    Returns:
+        str: The value with significance stars added.
+    """
+    if abs(t_stat) >= 2.58:
+        return f'{value:.2f}%***'
+    elif abs(t_stat) >= 1.96:
+        return f'{value:.2f}%**'
+    elif abs(t_stat) >= 1.64:
+        return f'{value:.2f}%*'
+    else:
+        return f'{value:.2f}%'
