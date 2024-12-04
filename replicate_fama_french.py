@@ -511,21 +511,21 @@ def replicate_fama_french():
         None
     """
 
-    # compute_mkt_factor(input_crsp_filename='data/processed_data/crsp.csv',
-    #                    output_mkt_factor_filename='data/processed_data/mkt_factor.csv',
-    #                    logging_enabled=True)
+    compute_mkt_factor(input_crsp_filename='data/processed_data/crsp.csv',
+                       output_mkt_factor_filename='data/processed_data/mkt_factor.csv',
+                       logging_enabled=True)
 
-    # compute_hml_factor(input_ccm_filename='data/processed_data/ccm.csv',
-    #                    output_hml_factor_filename='data/processed_data/hml_factor.csv',
-    #                    logging_enabled=True)
+    compute_hml_factor(input_ccm_filename='data/processed_data/ccm.csv',
+                       output_hml_factor_filename='data/processed_data/hml_factor.csv',
+                       logging_enabled=True)
 
-    # compute_rmw_factor(input_ccm_filename='data/processed_data/ccm.csv',
-    #                    output_rmw_factor_filename='data/processed_data/rmw_factor.csv',
-    #                    logging_enabled=True)
+    compute_rmw_factor(input_ccm_filename='data/processed_data/ccm.csv',
+                       output_rmw_factor_filename='data/processed_data/rmw_factor.csv',
+                       logging_enabled=True)
 
-    # compute_cma_factor(input_ccm_filename='data/processed_data/ccm.csv',
-    #                    output_cma_factor_filename='data/processed_data/cma_factor.csv',
-    #                    logging_enabled=True)
+    compute_cma_factor(input_ccm_filename='data/processed_data/ccm.csv',
+                       output_cma_factor_filename='data/processed_data/cma_factor.csv',
+                       logging_enabled=True)
 
     compute_umd_factor(input_crsp_filename='data/processed_data/crsp.csv',
                        output_umd_factor_filename='data/processed_data/umd_factor.csv',
